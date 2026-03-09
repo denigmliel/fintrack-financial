@@ -159,7 +159,7 @@ export default function Home() {
           )}
 
           {activeTab === "settings" && (
-            <div className="animate-in xl:max-w-3xl">
+            <div className="animate-in w-full xl:max-w-3xl xl:mx-auto">
               <SettingsView state={state} onUpdate={updateSettings} />
             </div>
           )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -26,6 +26,21 @@ interface ChartsProps {
 interface EmptyChartStateProps {
   title: string;
   description: string;
+}
+
+interface ExpenseCategorySummary {
+  category: Transaction["category"];
+  amount: number;
+  percentage: number;
+}
+
+interface MonthlyExpenseInsight {
+  monthKey: string;
+  monthLabel: string;
+  totalExpense: number;
+  topCategory: ExpenseCategorySummary | null;
+  topTransaction: Transaction | null;
+  categories: ExpenseCategorySummary[];
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -71,6 +86,31 @@ function EmptyChartState({ title, description }: EmptyChartStateProps) {
   );
 }
 
+function monthKeyToLabel(monthKey: string): string {
+  const [yearStr, monthStr] = monthKey.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return monthKey;
+  }
+  return new Date(year, month - 1, 1).toLocaleDateString("id-ID", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function transactionDateLabel(isoDate: string): string {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) {
+    return isoDate;
+  }
+  return date.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export default function Charts({ transactions, yearlyGoal: _yearlyGoal, monthlySavingsPlan }: ChartsProps) {
   const currentYear = new Date().getFullYear();
   const monthlyPlanLabel = monthlySavingsPlan > 0 ? formatRupiah(monthlySavingsPlan) : "belum diatur";
@@ -99,6 +139,86 @@ export default function Charts({ transactions, yearlyGoal: _yearlyGoal, monthlyS
     () => getCategoryBreakdown(transactions, "expense"),
     [transactions]
   );
+
+  const monthlyExpenseInsights = useMemo<MonthlyExpenseInsight[]>(() => {
+    const grouped = new Map<string, Transaction[]>();
+
+    transactions
+      .filter((tx) => tx.type === "expense")
+      .forEach((tx) => {
+        const monthKey = tx.date.slice(0, 7);
+        const existing = grouped.get(monthKey) ?? [];
+        existing.push(tx);
+        grouped.set(monthKey, existing);
+      });
+
+    return Array.from(grouped.entries())
+      .sort(([monthA], [monthB]) => monthB.localeCompare(monthA))
+      .map(([monthKey, monthTransactions]) => {
+        const totalExpense = monthTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+        const categoryTotals: Partial<Record<Transaction["category"], number>> = {};
+
+        monthTransactions.forEach((tx) => {
+          categoryTotals[tx.category] = (categoryTotals[tx.category] ?? 0) + tx.amount;
+        });
+
+        const categories: ExpenseCategorySummary[] = Object.entries(categoryTotals)
+          .map(([category, amount]) => ({
+            category: category as Transaction["category"],
+            amount: amount ?? 0,
+            percentage: totalExpense > 0 ? ((amount ?? 0) / totalExpense) * 100 : 0,
+          }))
+          .sort((a, b) => b.amount - a.amount);
+
+        const topTransaction = monthTransactions.reduce<Transaction | null>(
+          (maxTx, tx) => {
+            if (!maxTx || tx.amount > maxTx.amount) {
+              return tx;
+            }
+            return maxTx;
+          },
+          null
+        );
+
+        return {
+          monthKey,
+          monthLabel: monthKeyToLabel(monthKey),
+          totalExpense,
+          topCategory: categories[0] ?? null,
+          topTransaction,
+          categories,
+        };
+      });
+  }, [transactions]);
+
+  const [selectedExpenseMonth, setSelectedExpenseMonth] = useState<string>("");
+
+  useEffect(() => {
+    if (monthlyExpenseInsights.length === 0) {
+      if (selectedExpenseMonth) {
+        setSelectedExpenseMonth("");
+      }
+      return;
+    }
+
+    const hasSelectedMonth = monthlyExpenseInsights.some(
+      (insight) => insight.monthKey === selectedExpenseMonth
+    );
+
+    if (!hasSelectedMonth) {
+      setSelectedExpenseMonth(monthlyExpenseInsights[0].monthKey);
+    }
+  }, [monthlyExpenseInsights, selectedExpenseMonth]);
+
+  const selectedExpenseInsight = useMemo(() => {
+    if (monthlyExpenseInsights.length === 0) {
+      return null;
+    }
+    return (
+      monthlyExpenseInsights.find((insight) => insight.monthKey === selectedExpenseMonth) ??
+      monthlyExpenseInsights[0]
+    );
+  }, [monthlyExpenseInsights, selectedExpenseMonth]);
 
   return (
     <div className="space-y-6">
@@ -278,6 +398,140 @@ export default function Charts({ transactions, yearlyGoal: _yearlyGoal, monthlyS
           </div>
         </div>
       )}
+
+      <div className="glass-card p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+          <h3
+            className="font-display font-semibold text-sm"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Pengeluaran Terbesar per Bulan
+          </h3>
+
+          {monthlyExpenseInsights.length > 0 && (
+            <div className="w-full sm:w-auto sm:min-w-[220px]">
+              <select
+                value={selectedExpenseInsight?.monthKey ?? ""}
+                onChange={(e) => setSelectedExpenseMonth(e.target.value)}
+              >
+                {monthlyExpenseInsights.map((insight) => (
+                  <option key={insight.monthKey} value={insight.monthKey}>
+                    {insight.monthLabel}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {!selectedExpenseInsight ? (
+          <div style={{ height: 180 }}>
+            <EmptyChartState
+              title="Belum ada data pengeluaran bulanan"
+              description="Tambahkan transaksi pengeluaran agar kategori dan transaksi terbesar per bulan bisa dianalisis."
+            />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div
+                className="rounded-xl p-3"
+                style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+              >
+                <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                  Total pengeluaran
+                </p>
+                <p className="text-base font-mono font-semibold" style={{ color: "var(--accent-red)" }}>
+                  {formatRupiah(selectedExpenseInsight.totalExpense)}
+                </p>
+              </div>
+
+              <div
+                className="rounded-xl p-3"
+                style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+              >
+                <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                  Kategori terbesar
+                </p>
+                <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  {selectedExpenseInsight.topCategory
+                    ? CATEGORY_LABELS[selectedExpenseInsight.topCategory.category]
+                    : "-"}
+                </p>
+                <p className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                  {selectedExpenseInsight.topCategory
+                    ? `${formatRupiah(selectedExpenseInsight.topCategory.amount)} (${selectedExpenseInsight.topCategory.percentage.toFixed(1)}%)`
+                    : "-"}
+                </p>
+              </div>
+
+              <div
+                className="rounded-xl p-3"
+                style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+              >
+                <p className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                  Transaksi terbesar
+                </p>
+                <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                  {selectedExpenseInsight.topTransaction?.description || "-"}
+                </p>
+                <p className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                  {selectedExpenseInsight.topTransaction
+                    ? formatRupiah(selectedExpenseInsight.topTransaction.amount)
+                    : "-"}
+                </p>
+              </div>
+            </div>
+
+            {selectedExpenseInsight.topTransaction && (
+              <div
+                className="rounded-xl p-3"
+                style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+              >
+                <p className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
+                  Detail transaksi terbesar bulan {selectedExpenseInsight.monthLabel}
+                </p>
+                <div className="flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between">
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    {selectedExpenseInsight.topTransaction.description}
+                  </span>
+                  <span className="font-mono" style={{ color: "var(--text-muted)" }}>
+                    {CATEGORY_LABELS[selectedExpenseInsight.topTransaction.category]} | {transactionDateLabel(selectedExpenseInsight.topTransaction.date)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
+                Urutan kategori pengeluaran bulan ini
+              </p>
+              <div className="space-y-2">
+                {selectedExpenseInsight.categories.map((entry) => (
+                  <div key={entry.category} className="flex items-center gap-2">
+                    <div
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{
+                        background:
+                          CATEGORY_COLORS[entry.category as keyof typeof CATEGORY_COLORS] || "#6b7280",
+                      }}
+                    />
+                    <span className="text-xs truncate flex-1" style={{ color: "var(--text-muted)" }}>
+                      {CATEGORY_LABELS[entry.category]}
+                    </span>
+                    <span className="text-xs font-mono flex-shrink-0" style={{ color: "var(--text-secondary)" }}>
+                      {formatRupiah(entry.amount)}
+                    </span>
+                    <span className="text-xs flex-shrink-0" style={{ color: "var(--text-muted)" }}>
+                      {entry.percentage.toFixed(1)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
