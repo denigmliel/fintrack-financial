@@ -120,7 +120,7 @@ export default function AddTransaction({ onAdd }: AddTransactionProps) {
         </label>
         <div className="relative">
           <span
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-mono"
+            className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none select-none text-sm font-mono"
             style={{ color: "var(--text-secondary)" }}
           >
             Rp
@@ -131,7 +131,7 @@ export default function AddTransaction({ onAdd }: AddTransactionProps) {
             value={formatDisplayAmount(amount)}
             onChange={(e) => handleAmountChange(e.target.value.replace(/\./g, ""))}
             placeholder="0"
-            style={{ paddingLeft: "40px !important" }}
+            className="input-with-prefix"
           />
         </div>
       </div>

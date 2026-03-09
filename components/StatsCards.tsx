@@ -2,21 +2,29 @@
 
 import { useMemo } from "react";
 import { TrendingUp, TrendingDown, PiggyBank, Target, Zap } from "lucide-react";
-import { Transaction, formatJutaLabel, formatRupiah } from "@/lib/types";
+import { InvestmentTarget, Transaction, formatJutaLabel, formatRupiah } from "@/lib/types";
 import { getTotalSavings } from "@/lib/store";
 
 interface StatsCardsProps {
   transactions: Transaction[];
   yearlyGoal: number;
   monthlySavingsPlan: number;
-  cryptoThreshold: number;
+  investmentTargets: InvestmentTarget[];
 }
+
+const INVESTMENT_GRADIENTS = [
+  { from: "#6d28d9", to: "#8b5cf6" },
+  { from: "#0369a1", to: "#06b6d4" },
+  { from: "#d97706", to: "#f59e0b" },
+  { from: "#15803d", to: "#22c55e" },
+  { from: "#be185d", to: "#ec4899" },
+];
 
 export default function StatsCards({
   transactions,
   yearlyGoal,
   monthlySavingsPlan,
-  cryptoThreshold,
+  investmentTargets,
 }: StatsCardsProps) {
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -25,7 +33,8 @@ export default function StatsCards({
   const stats = useMemo(() => {
     const hasYearlyGoal = yearlyGoal > 0;
     const hasMonthlyPlan = monthlySavingsPlan > 0;
-    const hasCryptoThreshold = cryptoThreshold > 0;
+    const normalizedTargets = investmentTargets.filter((target) => target.targetAmount > 0 && target.name.trim());
+    const hasInvestmentTargets = normalizedTargets.length > 0;
 
     const currentMonthTx = transactions.filter((t) =>
       t.date.startsWith(currentMonth)
@@ -52,10 +61,20 @@ export default function StatsCards({
       hasYearlyGoal && hasMonthlyPlan && remaining > 0
         ? Math.ceil(remaining / monthlySavingsPlan)
         : 0;
-    const canInvestCrypto = hasCryptoThreshold && totalSavings >= cryptoThreshold;
-    const cryptoProgress = hasCryptoThreshold
-      ? Math.min((totalSavings / cryptoThreshold) * 100, 100)
-      : 0;
+
+    const investmentProgress = normalizedTargets.map((target) => {
+      const percent = Math.min((totalSavings / target.targetAmount) * 100, 100);
+      const remainingAmount = Math.max(target.targetAmount - totalSavings, 0);
+      const isReady = remainingAmount <= 0;
+      return {
+        ...target,
+        percent,
+        remainingAmount,
+        isReady,
+      };
+    });
+
+    const readyInvestmentCount = investmentProgress.filter((target) => target.isReady).length;
 
     return {
       monthIncome,
@@ -67,16 +86,15 @@ export default function StatsCards({
       monthsNeeded,
       hasYearlyGoal,
       hasMonthlyPlan,
-      hasCryptoThreshold,
-      canInvestCrypto,
-      cryptoProgress,
+      hasInvestmentTargets,
+      investmentProgress,
+      readyInvestmentCount,
       balance: monthIncome - monthExpense,
     };
-  }, [transactions, currentMonth, yearlyGoal, monthlySavingsPlan, cryptoThreshold]);
+  }, [transactions, currentMonth, yearlyGoal, monthlySavingsPlan, investmentTargets]);
 
   return (
     <div className="space-y-4">
-      {/* Main Goal Progress */}
       <div className="glass-card p-5 relative overflow-hidden">
         <div
           className="absolute inset-0 opacity-5"
@@ -137,58 +155,86 @@ export default function StatsCards({
         </div>
       </div>
 
-      {/* Crypto Investment Alert */}
-      <div
-        className="glass-card p-4 relative overflow-hidden"
-        style={{
-          borderColor: stats.canInvestCrypto ? "rgba(139,92,246,0.4)" : undefined,
-          boxShadow: stats.canInvestCrypto ? "0 0 30px rgba(139,92,246,0.15)" : undefined,
-        }}
-      >
+      <div className="glass-card p-4 relative overflow-hidden">
         <div className="flex items-center gap-2 mb-2">
-          <Zap size={16} style={{ color: stats.canInvestCrypto ? "#8b5cf6" : "var(--text-muted)" }} />
-          <span className="text-sm font-semibold" style={{ color: stats.canInvestCrypto ? "#8b5cf6" : "var(--text-secondary)" }}>
-            {stats.canInvestCrypto
-              ? "Siap Investasi Crypto!"
-              : stats.hasCryptoThreshold
-                ? "Threshold Crypto"
-                : "Threshold Crypto belum diatur"}
+          <Zap
+            size={16}
+            style={{
+              color:
+                stats.readyInvestmentCount > 0
+                  ? "var(--accent-green)"
+                  : "var(--text-muted)",
+            }}
+          />
+          <span
+            className="text-sm font-semibold"
+            style={{
+              color:
+                stats.readyInvestmentCount > 0
+                  ? "var(--accent-green)"
+                  : "var(--text-secondary)",
+            }}
+          >
+            {stats.hasInvestmentTargets ? "Progres Investasi" : "Target Investasi belum diatur"}
           </span>
         </div>
-        {stats.canInvestCrypto ? (
-          <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-            Tabunganmu sudah mencapai {formatRupiah(cryptoThreshold)}! Waktunya diversifikasi ke crypto untuk akselerasi target.
-          </p>
-        ) : !stats.hasCryptoThreshold ? (
+
+        {!stats.hasInvestmentTargets ? (
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Atur threshold di Pengaturan agar progres crypto bisa dihitung.
+            Atur target investasi di Pengaturan. Kamu bisa menambah jenis apa pun beserta nominalnya.
           </p>
         ) : (
-          <>
-            <div className="progress-bar mt-2" style={{ background: "rgba(139,92,246,0.1)" }}>
-              <div
-                style={{
-                  height: "100%",
-                  borderRadius: "100px",
-                  background: "linear-gradient(90deg, #6d28d9, #8b5cf6)",
-                  width: `${stats.cryptoProgress}%`,
-                  transition: "width 1s cubic-bezier(0.4, 0, 0.2, 1)",
-                }}
-              />
-            </div>
-            <div className="flex justify-between mt-1">
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                {hasTransactions ? formatRupiah(stats.totalSavings) : "-"}
-              </span>
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Target {formatRupiah(cryptoThreshold)}
-              </span>
-            </div>
-          </>
+          <div className="space-y-3">
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              {stats.readyInvestmentCount > 0
+                ? `${stats.readyInvestmentCount}/${stats.investmentProgress.length} target sudah siap dieksekusi`
+                : "Belum ada target investasi yang tercapai"}
+            </p>
+
+            {stats.investmentProgress.map((target, index) => {
+              const gradient = INVESTMENT_GRADIENTS[index % INVESTMENT_GRADIENTS.length];
+              return (
+                <div key={target.id}>
+                  <div className="flex justify-between gap-3">
+                    <span
+                      className="text-xs font-medium truncate"
+                      style={{ color: target.isReady ? "var(--accent-green)" : "var(--text-secondary)" }}
+                    >
+                      {target.name}
+                    </span>
+                    <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>
+                      {target.percent.toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="progress-bar mt-1" style={{ background: "rgba(255,255,255,0.08)" }}>
+                    <div
+                      style={{
+                        height: "100%",
+                        borderRadius: "100px",
+                        background: `linear-gradient(90deg, ${gradient.from}, ${gradient.to})`,
+                        width: `${target.percent}%`,
+                        transition: "width 1s cubic-bezier(0.4, 0, 0.2, 1)",
+                      }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {hasTransactions ? formatRupiah(stats.totalSavings) : "-"}
+                    </span>
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      Target {formatRupiah(target.targetAmount)}
+                    </span>
+                  </div>
+                  <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                    {target.isReady ? "Nominal tercapai, siap mulai investasi." : `Sisa ${formatRupiah(target.remainingAmount)}`}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {/* Monthly Overview Grid */}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <div className="glass-card p-4">
           <div className="flex items-center gap-1.5 mb-2">

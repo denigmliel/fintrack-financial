@@ -126,7 +126,7 @@ export default function Home() {
                 transactions={state.transactions}
                 yearlyGoal={state.yearlyGoal}
                 monthlySavingsPlan={state.monthlySavingsPlan}
-                cryptoThreshold={state.cryptoThreshold}
+                investmentTargets={state.investmentTargets}
               />
               <div className="min-w-0 xl:sticky xl:top-28 xl:self-start">
                 <AddTransaction onAdd={addTransaction} />

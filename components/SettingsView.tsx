@@ -1,12 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { Settings, Save } from "lucide-react";
-import { AppState, formatRupiahFull } from "@/lib/types";
+import { useMemo, useState } from "react";
+import { Settings, Save, Plus, Trash2 } from "lucide-react";
+import { AppState, InvestmentTarget, formatRupiahFull } from "@/lib/types";
 
 interface SettingsViewProps {
   state: AppState;
-  onUpdate: (s: Partial<Pick<AppState, "yearlyGoal" | "monthlySavingsPlan" | "cryptoThreshold">>) => void;
+  onUpdate: (
+    s: Partial<
+      Pick<AppState, "yearlyGoal" | "monthlySavingsPlan" | "cryptoThreshold" | "investmentTargets">
+    >
+  ) => void;
+}
+
+interface EditableInvestmentTarget {
+  id: string;
+  name: string;
+  targetJuta: string;
 }
 
 function toMillionInput(amount: number): string {
@@ -14,25 +24,115 @@ function toMillionInput(amount: number): string {
 }
 
 function parseMillionInput(value: string): number {
-  const parsed = Number(value);
+  const normalized = value.replace(",", ".");
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) && parsed > 0 ? parsed * 1_000_000 : 0;
+}
+
+function createLocalTargetId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `target_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function toEditableTargets(state: AppState): EditableInvestmentTarget[] {
+  if (state.investmentTargets.length > 0) {
+    return state.investmentTargets.map((target) => ({
+      id: target.id,
+      name: target.name,
+      targetJuta: toMillionInput(target.targetAmount),
+    }));
+  }
+
+  if (state.cryptoThreshold > 0) {
+    return [
+      {
+        id: "crypto",
+        name: "Crypto",
+        targetJuta: toMillionInput(state.cryptoThreshold),
+      },
+    ];
+  }
+
+  return [
+    {
+      id: createLocalTargetId(),
+      name: "Crypto",
+      targetJuta: "",
+    },
+  ];
+}
+
+function toPersistedTargets(targets: EditableInvestmentTarget[]): InvestmentTarget[] {
+  return targets
+    .map((target, index) => {
+      const name = target.name.trim();
+      const targetAmount = parseMillionInput(target.targetJuta);
+      if (!name || targetAmount <= 0) {
+        return null;
+      }
+
+      return {
+        id: target.id.trim() || `investment-${index + 1}`,
+        name,
+        targetAmount,
+      };
+    })
+    .filter((target): target is InvestmentTarget => Boolean(target));
 }
 
 export default function SettingsView({ state, onUpdate }: SettingsViewProps) {
   const [yearlyGoal, setYearlyGoal] = useState(toMillionInput(state.yearlyGoal));
   const [monthlySavings, setMonthlySavings] = useState(toMillionInput(state.monthlySavingsPlan));
-  const [cryptoThreshold, setCryptoThreshold] = useState(toMillionInput(state.cryptoThreshold));
+  const [investmentTargets, setInvestmentTargets] = useState<EditableInvestmentTarget[]>(toEditableTargets(state));
   const [saved, setSaved] = useState(false);
 
   const yearlyGoalValue = parseMillionInput(yearlyGoal);
   const monthlySavingsValue = parseMillionInput(monthlySavings);
-  const cryptoThresholdValue = parseMillionInput(cryptoThreshold);
+  const parsedInvestmentTargets = useMemo(
+    () => toPersistedTargets(investmentTargets),
+    [investmentTargets]
+  );
+  const totalInvestmentTarget = parsedInvestmentTargets.reduce((sum, target) => sum + target.targetAmount, 0);
+
+  const handleInvestmentChange = (
+    id: string,
+    field: "name" | "targetJuta",
+    value: string
+  ) => {
+    setInvestmentTargets((prev) =>
+      prev.map((target) =>
+        target.id === id
+          ? {
+              ...target,
+              [field]: value,
+            }
+          : target
+      )
+    );
+  };
+
+  const handleAddInvestment = () => {
+    setInvestmentTargets((prev) => [
+      ...prev,
+      {
+        id: createLocalTargetId(),
+        name: "",
+        targetJuta: "",
+      },
+    ]);
+  };
+
+  const handleRemoveInvestment = (id: string) => {
+    setInvestmentTargets((prev) => prev.filter((target) => target.id !== id));
+  };
 
   const handleSave = () => {
     onUpdate({
       yearlyGoal: yearlyGoalValue,
       monthlySavingsPlan: monthlySavingsValue,
-      cryptoThreshold: cryptoThresholdValue,
+      investmentTargets: parsedInvestmentTargets,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -85,19 +185,58 @@ export default function SettingsView({ state, onUpdate }: SettingsViewProps) {
           </div>
 
           <div>
-            <label className="text-xs mb-1.5 block font-medium" style={{ color: "var(--text-muted)" }}>
-              Threshold Investasi Crypto (dalam juta Rp)
-            </label>
-            <input
-              type="number"
-              value={cryptoThreshold}
-              onChange={(e) => setCryptoThreshold(e.target.value)}
-              placeholder="Contoh: 20"
-            />
-            <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-              {cryptoThresholdValue > 0
-                ? `Ketika tabungan mencapai ${formatRupiahFull(cryptoThresholdValue)}, saatnya invest crypto!`
-                : "Belum diatur"}
+            <div className="flex items-center justify-between mb-1.5 gap-3">
+              <label className="text-xs block font-medium" style={{ color: "var(--text-muted)" }}>
+                Daftar Target Investasi (dalam juta Rp)
+              </label>
+              <button
+                type="button"
+                onClick={handleAddInvestment}
+                className="btn-secondary"
+                style={{ padding: "6px 10px", fontSize: "12px", borderRadius: "8px" }}
+              >
+                <Plus size={13} />
+                Tambah
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {investmentTargets.length === 0 ? (
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Belum ada target. Tambahkan minimal satu jenis investasi.
+                </p>
+              ) : (
+                investmentTargets.map((target) => (
+                  <div key={target.id} className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_140px_auto] gap-2">
+                    <input
+                      type="text"
+                      value={target.name}
+                      onChange={(e) => handleInvestmentChange(target.id, "name", e.target.value)}
+                      placeholder="Contoh: Crypto, Emas, Saham"
+                    />
+                    <input
+                      type="number"
+                      value={target.targetJuta}
+                      onChange={(e) => handleInvestmentChange(target.id, "targetJuta", e.target.value)}
+                      placeholder="Nominal (juta)"
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary justify-center"
+                      style={{ borderRadius: "8px", minHeight: "40px", padding: "0 10px" }}
+                      onClick={() => handleRemoveInvestment(target.id)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+              {parsedInvestmentTargets.length > 0
+                ? `${parsedInvestmentTargets.length} target valid, total ${formatRupiahFull(totalInvestmentTarget)}`
+                : "Isi nama dan nominal > 0 agar target tersimpan"}
             </p>
           </div>
         </div>
@@ -129,12 +268,27 @@ export default function SettingsView({ state, onUpdate }: SettingsViewProps) {
               </span>
             </div>
             <div className="flex justify-between text-xs">
-              <span style={{ color: "var(--text-muted)" }}>Crypto mulai di</span>
-              <span className="font-mono" style={{ color: "#8b5cf6" }}>
-                {cryptoThresholdValue > 0 ? formatRupiahFull(cryptoThresholdValue) : "-"}
+              <span style={{ color: "var(--text-muted)" }}>Total target investasi</span>
+              <span className="font-mono" style={{ color: "var(--text-secondary)" }}>
+                {parsedInvestmentTargets.length > 0 ? formatRupiahFull(totalInvestmentTarget) : "-"}
               </span>
             </div>
           </div>
+
+          {parsedInvestmentTargets.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              {parsedInvestmentTargets.map((target) => (
+                <div key={target.id} className="flex justify-between text-xs">
+                  <span className="truncate pr-2" style={{ color: "var(--text-muted)" }}>
+                    {target.name}
+                  </span>
+                  <span className="font-mono" style={{ color: "var(--text-secondary)" }}>
+                    {formatRupiahFull(target.targetAmount)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <button

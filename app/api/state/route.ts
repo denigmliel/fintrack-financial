@@ -23,19 +23,54 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isValidInvestmentTargets(value: unknown): boolean {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  return value.every((target) => {
+    if (!isObject(target)) {
+      return false;
+    }
+
+    return (
+      typeof target.id === "string" &&
+      target.id.trim().length > 0 &&
+      typeof target.name === "string" &&
+      target.name.trim().length > 0 &&
+      typeof target.targetAmount === "number" &&
+      Number.isFinite(target.targetAmount) &&
+      target.targetAmount >= 0
+    );
+  });
+}
+
 function isValidStateShape(value: unknown): value is AppState {
   if (!isObject(value)) {
     return false;
   }
 
-  const { transactions, monthlyBudget, savingsTarget, yearlyGoal, monthlySavingsPlan, cryptoThreshold } = value;
+  const {
+    transactions,
+    monthlyBudget,
+    savingsTarget,
+    yearlyGoal,
+    monthlySavingsPlan,
+    cryptoThreshold,
+    investmentTargets,
+  } = value;
+
+  const hasValidInvestmentTargets =
+    investmentTargets === undefined || isValidInvestmentTargets(investmentTargets);
+
   return (
     Array.isArray(transactions) &&
     Array.isArray(monthlyBudget) &&
     typeof savingsTarget === "number" &&
     typeof yearlyGoal === "number" &&
     typeof monthlySavingsPlan === "number" &&
-    typeof cryptoThreshold === "number"
+    typeof cryptoThreshold === "number" &&
+    hasValidInvestmentTargets
   );
 }
 

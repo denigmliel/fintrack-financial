@@ -31,13 +31,20 @@ export interface MonthlyBudget {
   savingsTarget: number;
 }
 
+export interface InvestmentTarget {
+  id: string;
+  name: string;
+  targetAmount: number;
+}
+
 export interface AppState {
   transactions: Transaction[];
   monthlyBudget: MonthlyBudget[];
   savingsTarget: number; // legacy field for savings target
   yearlyGoal: number; // target tabungan tahunan
   monthlySavingsPlan: number; // target tabungan bulanan
-  cryptoThreshold: number; // ambang tabungan sebelum crypto
+  cryptoThreshold: number; // legacy field untuk kompatibilitas data lama
+  investmentTargets: InvestmentTarget[]; // daftar target investasi custom
 }
 
 export const CATEGORY_LABELS: Record<Category, string> = {

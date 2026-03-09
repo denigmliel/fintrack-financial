@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Transaction, AppState } from "./types";
+import { Transaction, AppState, InvestmentTarget } from "./types";
 
 const STORAGE_KEY = "finance_tracker_data";
 const CLIENT_ID_KEY = "finance_tracker_client_id";
@@ -14,6 +14,7 @@ const defaultState: AppState = {
   yearlyGoal: 0,
   monthlySavingsPlan: 0,
   cryptoThreshold: 0,
+  investmentTargets: [],
 };
 
 const LEGACY_SAMPLE_BY_ID: Record<
@@ -84,11 +85,83 @@ function isLegacySampleData(transactions: Transaction[]): boolean {
   });
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeTargetName(name: unknown): string {
+  if (typeof name !== "string") {
+    return "";
+  }
+  return name.trim().slice(0, 40);
+}
+
+function normalizeTargetAmount(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return value > 0 ? Math.round(value) : 0;
+}
+
+function normalizeTargetId(value: unknown, fallbackIndex: number): string {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim().slice(0, 60);
+  }
+  return `investment-${fallbackIndex + 1}`;
+}
+
+function normalizeInvestmentTargets(value: unknown): InvestmentTarget[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seenIds = new Set<string>();
+  const normalized: InvestmentTarget[] = [];
+
+  value.forEach((item, index) => {
+    if (!isObject(item)) {
+      return;
+    }
+
+    const name = normalizeTargetName(item.name);
+    const targetAmount = normalizeTargetAmount(item.targetAmount);
+    if (!name || targetAmount <= 0) {
+      return;
+    }
+
+    let id = normalizeTargetId(item.id, index);
+    while (seenIds.has(id)) {
+      id = `${id}-${index + 1}`;
+    }
+
+    seenIds.add(id);
+    normalized.push({ id, name, targetAmount });
+  });
+
+  return normalized;
+}
+
+function deriveCryptoThreshold(investmentTargets: InvestmentTarget[]): number {
+  return investmentTargets.reduce((max, target) => {
+    const isCryptoTarget = target.name.toLowerCase().includes("crypto");
+    return isCryptoTarget ? Math.max(max, target.targetAmount) : max;
+  }, 0);
+}
+
 function normalizeLoadedState(parsed: Partial<AppState>): AppState {
   const merged: AppState = { ...defaultState, ...parsed };
   const shouldClearLegacySample = isLegacySampleData(merged.transactions);
   const normalizedTransactions = shouldClearLegacySample ? [] : merged.transactions;
   const hasTransactions = normalizedTransactions.length > 0;
+  const parsedInvestmentTargets = normalizeInvestmentTargets(parsed.investmentTargets);
+  const hasExplicitInvestmentTargets = parsedInvestmentTargets.length > 0;
+  const normalizedInvestmentTargets =
+    hasExplicitInvestmentTargets
+      ? parsedInvestmentTargets
+      : merged.cryptoThreshold > 0
+        ? [{ id: "crypto", name: "Crypto", targetAmount: merged.cryptoThreshold }]
+        : [];
+  const derivedCryptoThreshold = deriveCryptoThreshold(normalizedInvestmentTargets);
   const usesLegacyPresetTargets =
     merged.yearlyGoal === 100_000_000 &&
     merged.monthlySavingsPlan === 4_000_000 &&
@@ -102,12 +175,15 @@ function normalizeLoadedState(parsed: Partial<AppState>): AppState {
       yearlyGoal: 0,
       monthlySavingsPlan: 0,
       cryptoThreshold: 0,
+      investmentTargets: [],
     };
   }
 
   return {
     ...merged,
     transactions: normalizedTransactions,
+    investmentTargets: normalizedInvestmentTargets,
+    cryptoThreshold: hasExplicitInvestmentTargets ? derivedCryptoThreshold : merged.cryptoThreshold,
   };
 }
 
@@ -235,9 +311,22 @@ export function useFinanceStore() {
   );
 
   const updateSettings = useCallback(
-    (settings: Partial<Pick<AppState, "yearlyGoal" | "monthlySavingsPlan" | "cryptoThreshold">>) => {
+    (settings: Partial<Pick<AppState, "yearlyGoal" | "monthlySavingsPlan" | "cryptoThreshold" | "investmentTargets">>) => {
       setState((prev) => {
-        const newState = { ...prev, ...settings };
+        const nextInvestmentTargets =
+          settings.investmentTargets !== undefined
+            ? normalizeInvestmentTargets(settings.investmentTargets)
+            : prev.investmentTargets;
+        const nextCryptoThreshold =
+          settings.cryptoThreshold !== undefined
+            ? normalizeTargetAmount(settings.cryptoThreshold)
+            : deriveCryptoThreshold(nextInvestmentTargets);
+        const newState = {
+          ...prev,
+          ...settings,
+          investmentTargets: nextInvestmentTargets,
+          cryptoThreshold: nextCryptoThreshold,
+        };
 
         persistLocalState(newState);
         void syncRemoteState(newState);
