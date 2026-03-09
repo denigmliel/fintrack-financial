@@ -1,0 +1,17 @@
+{
+  "name": "FinTrack - Lacak Keuanganmu",
+  "short_name": "FinTrack",
+  "description": "Pantau keuangan dan capai target 100jt",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0f0d",
+  "theme_color": "#22c55e",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
